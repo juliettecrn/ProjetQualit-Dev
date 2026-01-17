@@ -15,7 +15,6 @@ public class ProgServer extends Thread {
     private final int port;
     private final ServiceRegistry registry;
 
-    // Auth simple en mémoire (login -> mdp)
     private final Map<String, String> accounts = new HashMap<>();
 
     public ProgServer(int port, ServiceRegistry registry) {
@@ -23,8 +22,10 @@ public class ProgServer extends Thread {
         this.registry = registry;
         setName("ProgServer");
 
-        // Ajoute tes comptes ici
-        accounts.put("YOUR_LOGIN", "YOUR_PASSWORD");
+        accounts.put("kirankumar", "1234");
+        accounts.put("juliette", "1234");
+        accounts.put("aron", "1234");
+
     }
 
     @Override
@@ -63,7 +64,6 @@ public class ProgServer extends Thread {
 
                 String login = null;
 
-                // --- Auth ---
                 while (true) {
                     String line = in.readLine();
                     if (line == null) return;
@@ -91,11 +91,10 @@ public class ProgServer extends Thread {
 
                     login = l;
                     out.println("OK AUTH");
-                    out.println("COMMANDS: ADD <serviceName> <className> <classesDir> | UPDATE <serviceName> <className> <classesDir> | BYE");
+                    out.println("COMMANDS: ADD <serviceName> <className> <classesDir> | UPDATE <serviceName> <className> <classesDir> | LOGOUT | BYE");
                     break;
                 }
 
-                // --- Commandes ---
                 while (true) {
                     String line = in.readLine();
                     if (line == null) return;
@@ -106,6 +105,40 @@ public class ProgServer extends Thread {
                         out.println("BYE");
                         return;
                     }
+
+                    if (line.equalsIgnoreCase("LOGOUT")) {
+                        out.println("OK LOGOUT");
+                        // Revenir en mode authentification
+                        login = null;
+
+                        out.println("LOGIN <login> <password>");
+                        while (true) {
+                            String l2 = in.readLine();
+                            if (l2 == null) return;
+                            l2 = l2.trim();
+                            if (!l2.toUpperCase().startsWith("LOGIN ")) {
+                                out.println("ERR Please LOGIN first");
+                                continue;
+                            }
+                            String[] parts2 = l2.split("\\s+");
+                            if (parts2.length != 3) {
+                                out.println("ERR Usage: LOGIN <login> <password>");
+                                continue;
+                            }
+                            String newLogin = parts2[1];
+                            String newPwd = parts2[2];
+                            if (!accounts.containsKey(newLogin) || !accounts.get(newLogin).equals(newPwd)) {
+                                out.println("ERR Bad credentials");
+                                continue;
+                            }
+                            login = newLogin;
+                            out.println("OK AUTH");
+                            out.println("COMMANDS: ADD <serviceName> <className> <classesDir> | UPDATE <serviceName> <className> <classesDir> | LOGOUT | BYE");
+                            break;
+                        }
+                        continue;
+                    }
+
 
                     String upper = line.toUpperCase();
                     if (upper.startsWith("ADD ") || upper.startsWith("UPDATE ")) {
@@ -120,7 +153,6 @@ public class ProgServer extends Thread {
                         String className = parts[2];
                         String classesDir = parts[3];
 
-                        // Vérif package = login (obligatoire)
                         if (!className.startsWith(login + ".")) {
                             out.println("ERR Class must be in package '" + login + ".*'");
                             continue;
@@ -147,20 +179,16 @@ public class ProgServer extends Thread {
         }
 
         private static ServiceDescriptor loadService(String serviceName, String className, String classesDir) throws Exception {
-            // classesDir = dossier qui contient la racine des packages compilés
-            // ex: /.../out/production/servicesExemples
             Path dir = Path.of(classesDir).toAbsolutePath();
             URL url = dir.toUri().toURL();
 
             URLClassLoader loader = new URLClassLoader(new URL[]{url}, ProgServer.class.getClassLoader());
             Class<?> clazz = loader.loadClass(className);
 
-            // Vérif "Thread" obligatoire pour start()
             if (!Thread.class.isAssignableFrom(clazz)) {
                 throw new IllegalArgumentException("Service must extend Thread");
             }
 
-            // Vérif constructeur public(Socket)
             Constructor<?> ctor = clazz.getDeclaredConstructor(Socket.class);
             if (!Modifier.isPublic(ctor.getModifiers())) {
                 throw new IllegalArgumentException("Constructor(Socket) must be public");

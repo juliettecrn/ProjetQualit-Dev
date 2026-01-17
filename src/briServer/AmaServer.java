@@ -3,6 +3,7 @@ package briServer;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
 public class AmaServer extends Thread {
     private final int port;
@@ -17,13 +18,22 @@ public class AmaServer extends Thread {
     @Override
     public void run() {
         try (ServerSocket ss = new ServerSocket(port)) {
+            ss.setReuseAddress(true);
             System.out.println("[AmaServer] écoute sur " + port);
+
             while (true) {
-                Socket client = ss.accept();
-                new AmaHandler(client, registry).start();
+                try {
+                    Socket client = ss.accept();
+                    System.out.println("[AmaServer] accepted " + client.getRemoteSocketAddress());
+                    new AmaHandler(client, registry).start();
+                } catch (Exception e) {
+                    System.err.println("[AmaServer] accept/handler error: " + e);
+                    e.printStackTrace();
+                }
             }
         } catch (IOException e) {
-            System.err.println("[AmaServer] Erreur: " + e.getMessage());
+            System.err.println("[AmaServer] fatal: " + e);
+            e.printStackTrace();
         }
     }
 
@@ -39,22 +49,34 @@ public class AmaServer extends Thread {
 
         @Override
         public void run() {
-            try (
-                    BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                    PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true)
-            ) {
+            System.out.println("[AmaHandler] start " + socket.getRemoteSocketAddress());
+
+            BufferedReader in = null;
+            PrintWriter out = null;
+
+            try {
+                in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
+
                 out.println("WELCOME AMA");
                 out.println("COMMANDS: LIST | RUN <serviceName> | BYE");
 
                 while (true) {
                     String line = in.readLine();
-                    if (line == null) break;
+                    if (line == null) {
+                        safeClose(socket);
+                        System.out.println("[AmaHandler] end (client closed)");
+                        return;
+                    }
+
                     line = line.trim();
                     if (line.isEmpty()) continue;
 
                     if (line.equalsIgnoreCase("BYE")) {
                         out.println("BYE");
-                        break;
+                        safeClose(socket);
+                        System.out.println("[AmaHandler] end (BYE)");
+                        return;
                     }
 
                     if (line.equalsIgnoreCase("LIST")) {
@@ -67,7 +89,13 @@ public class AmaServer extends Thread {
                     }
 
                     if (line.toUpperCase().startsWith("RUN ")) {
-                        String serviceName = line.substring(4).trim();
+                        String[] parts = line.split("\\s+");
+                        if (parts.length != 2) {
+                            out.println("ERR Usage: RUN <serviceName>");
+                            continue;
+                        }
+
+                        String serviceName = parts[1];
                         ServiceDescriptor d = registry.get(serviceName);
                         if (d == null) {
                             out.println("ERR Unknown service: " + serviceName);
@@ -75,23 +103,29 @@ public class AmaServer extends Thread {
                         }
 
                         out.println("OK RUNNING " + serviceName);
+                        out.flush(); // important
 
-                        // Délégation: on instancie le service avec la socket
-                        // et on le lance, puis on attend sa fin
+                        // IMPORTANT : on délègue la socket au service.
+                        // Après ça, le handler ne doit plus lire/écrire.
                         Thread serviceThread = (Thread) d.socketCtor.newInstance(socket);
                         serviceThread.start();
-                        serviceThread.join(); // on attend que le service termine
-                        return; // le service gère la fermeture éventuelle
+
+                        System.out.println("[AmaHandler] delegated to service " + serviceName + " then exit handler");
+                        return;
                     }
 
                     out.println("ERR Unknown command");
                 }
+
             } catch (Exception e) {
-                // Ne pas spam stacktrace en prod
-                System.err.println("[AmaHandler] Erreur: " + e.getMessage());
-            } finally {
-                try { socket.close(); } catch (IOException ignored) {}
+                System.err.println("[AmaHandler] error: " + e);
+                e.printStackTrace();
+                safeClose(socket);
             }
+        }
+
+        private static void safeClose(Socket s) {
+            try { s.close(); } catch (IOException ignored) {}
         }
     }
 }

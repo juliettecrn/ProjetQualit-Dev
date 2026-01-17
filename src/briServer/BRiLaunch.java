@@ -2,7 +2,6 @@ package briServer;
 
 public class BRiLaunch {
 
-    // Change si tu veux
     public static final int PORT_AMA = 4000;
     public static final int PORT_PROG = 5000;
 
