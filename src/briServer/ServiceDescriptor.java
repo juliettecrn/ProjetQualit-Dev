@@ -15,4 +15,11 @@ public class ServiceDescriptor {
         this.socketCtor = socketCtor;
         this.loader = loader;
     }
+
+    public void closeLoader() {
+        try {
+            loader.close();
+        } catch (Exception ignored) {
+        }
+    }
 }

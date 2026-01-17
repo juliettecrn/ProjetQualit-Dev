@@ -4,7 +4,7 @@ public class BRiLaunch {
 
     // Change si tu veux
     public static final int PORT_AMA = 4000;
-    public static final int PORT_PROG = 5000;
+    public static final int PORT_PROG = 5100;
 
     public static void main(String[] args) {
         ServiceRegistry registry = new ServiceRegistry();

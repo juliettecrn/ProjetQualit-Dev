@@ -7,8 +7,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ServiceRegistry {
     private final Map<String, ServiceDescriptor> services = new ConcurrentHashMap<>();
 
-    public void put(ServiceDescriptor desc) {
-        services.put(desc.serviceName, desc);
+    public ServiceDescriptor put(ServiceDescriptor desc) {
+        return services.put(desc.serviceName, desc);
     }
 
     public ServiceDescriptor get(String serviceName) {

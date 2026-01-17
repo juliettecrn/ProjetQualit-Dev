@@ -7,7 +7,7 @@ import java.util.Scanner;
 public class ClientProg {
     public static void main(String[] args) throws Exception {
         String host = "127.0.0.1";
-        int port = 5000; // doit matcher BRiLaunch.PORT_PROG
+        int port = 5100; // doit matcher BRiLaunch.PORT_PROG
 
         try (Socket s = new Socket(host, port);
              BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));

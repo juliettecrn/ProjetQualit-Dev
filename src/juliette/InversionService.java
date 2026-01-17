@@ -5,7 +5,7 @@ import briApi.BriService;
 import java.io.*;
 import java.net.Socket;
 
-public class    InversionService extends Thread implements BriService {
+public class InversionService extends Thread implements BriService {
     private final Socket socket;
 
     // OBLIGATOIRE : constructeur public(Socket)
