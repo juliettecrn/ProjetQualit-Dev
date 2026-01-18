@@ -3,19 +3,35 @@ package clientAma;
 import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
 public class ClientAma {
 
-    private static boolean looksLikeEnd(String line) {
+    // Fin d’un bloc “multi-lignes”
+    private static boolean isBlockEnd(String line) {
         if (line == null) return true;
+        line = line.trim();
         return line.equals("END")
                 || line.startsWith("END ")
-                || line.equals("EOF")
-                || line.equals("BYE")
+                || line.equals("EOF");
+    }
+
+    // Fin d’une réponse “simple”
+    private static boolean isSimpleEnd(String line) {
+        if (line == null) return true;
+        line = line.trim();
+        return line.equals("BYE")
                 || line.startsWith("ERR")
-                || line.startsWith("OK ");
+                || line.startsWith("OK STORED") // fin PUT
+                || line.startsWith("OK USER")   // messagerie
+                || line.startsWith("OK SENT")   // messagerie
+                || line.startsWith("OK READ")   // messagerie (suivi d’un bloc END)
+                || line.startsWith("OK LS")     // filex (suivi d’un bloc END n)
+                || line.startsWith("OK GET")    // filex (suivi d’un bloc EOF)
+                || line.startsWith("OK PUT")    // filex (ensuite client envoie base64/EOF)
+                || line.startsWith("OK ");      // fallback
     }
 
     private static class Conn implements Closeable {
@@ -37,13 +53,80 @@ public class ClientAma {
         }
     }
 
+    /**
+     * Lit toutes les lignes “déjà envoyées” par le serveur, sans se baser sur ready().
+     * On utilise un petit timeout pour vider ce qui est immédiatement disponible.
+     */
+    private static void drainServerOutput(Conn c, int maxLines) throws IOException {
+        int oldTimeout = c.socket.getSoTimeout();
+        c.socket.setSoTimeout(120); // petit timeout : on lit ce qui arrive tout de suite
+        try {
+            for (int i = 0; i < maxLines; i++) {
+                try {
+                    String l = c.in.readLine();
+                    if (l == null) return;
+                    System.out.println(l);
+
+                    // Si on tombe sur un terminator de bloc, on s'arrête
+                    if (isBlockEnd(l)) return;
+
+                    // Si c’est une réponse simple qui annonce ensuite un bloc (READ/LS/GET),
+                    // on laisse la lecture “normale” gérer le bloc après la commande.
+                } catch (SocketTimeoutException ste) {
+                    return; // plus rien d'immédiat
+                }
+            }
+        } finally {
+            c.socket.setSoTimeout(oldTimeout);
+        }
+    }
+
+    /**
+     * Lit la réponse du service après une commande:
+     * - lit au moins 1 ligne
+     * - si c’est un bloc (LS/READ/GET), lit jusqu’à END/EOF
+     */
+    private static void readServiceResponse(Conn c) throws IOException {
+        String first = c.in.readLine();
+        if (first == null) throw new EOFException("Connection closed");
+        System.out.println(first);
+
+        String t = first.trim().toUpperCase();
+
+        // Cas bloc multi-lignes :
+        // - LS/READ -> se termine par END / END n
+        // - GET -> se termine par EOF
+        boolean expectsBlock =
+                t.startsWith("OK LS")
+                        || t.startsWith("OK READ")
+                        || t.startsWith("OK GET");
+
+        if (expectsBlock) {
+            while (true) {
+                String l = c.in.readLine();
+                if (l == null) throw new EOFException("Connection closed");
+                System.out.println(l);
+                if (isBlockEnd(l)) break;
+            }
+            return;
+        }
+
+        // Cas PUT :
+        // après OK PUT, le client doit envoyer base64 + EOF, donc pas de lecture supplémentaire ici.
+        if (t.startsWith("OK PUT")) {
+            return;
+        }
+
+        // Autres cas : 1 ligne suffit (OK STORED / ERR / BYE / etc.)
+    }
+
     public static void main(String[] args) {
         String host = "127.0.0.1";
         int portAma = 4000;
 
         try (Scanner sc = new Scanner(System.in)) {
 
-            // boucle globale: on se reconnecte en recréant une Conn neuve
+            // boucle globale: reconnexion en recréant une Conn neuve
             while (true) {
                 try (Conn c = new Conn(host, portAma)) {
 
@@ -71,7 +154,6 @@ public class ClientAma {
                         if (cmd.toUpperCase().startsWith("RUN ")) {
                             String resp = c.in.readLine();
                             if (resp == null) {
-                                // connexion déjà tombée, on reconnecte
                                 System.out.println("<< Connexion fermée. Reconnexion...");
                                 break;
                             }
@@ -83,64 +165,81 @@ public class ClientAma {
 
                             System.out.println(">> Mode service (svc>). Tape BYE si le service le supporte.");
 
+                            // Lire immédiatement les messages d'accueil du service (FILEX READY, COMMANDS..., etc.)
+                            drainServerOutput(c, 10);
+
                             // boucle service
                             while (true) {
                                 System.out.print("svc> ");
                                 String svcCmd = sc.nextLine();
                                 c.out.println(svcCmd);
 
-                                String line;
                                 try {
-                                    line = c.in.readLine();
+                                    // Réponse du service (sans décalage)
+                                    readServiceResponse(c);
                                 } catch (SocketException se) {
                                     System.out.println("<< Service a fermé la connexion. Reconnexion...");
-                                    // on sort du mode service puis du menu => reconnexion
-                                    line = null;
+                                    break;
+                                } catch (EOFException eof) {
+                                    System.out.println("<< Connexion fermée. Reconnexion...");
+                                    break;
                                 }
 
-                                if (line == null) {
-                                    // le service a fermé la socket (ex: inversion one-shot)
-                                    break; // sort service
-                                }
+                                // Cas particulier PUT : après OK PUT, on doit envoyer base64 puis EOF,
+                                // puis le serveur répond OK STORED / ERR PUT.
+                                if (svcCmd.toUpperCase().startsWith("PUT ")) {
+                                    while (true) {
+                                        System.out.print("svc> ");
+                                        String dataLine = sc.nextLine();
+                                        c.out.println(dataLine);
 
-                                System.out.println(line);
-
-                                // lire bloc éventuel
-                                if (!looksLikeEnd(line)) {
-                                    while (c.in.ready()) {
-                                        String more = c.in.readLine();
-                                        if (more == null) break;
-                                        System.out.println(more);
-                                        if (looksLikeEnd(more)) break;
+                                        if ("EOF".equalsIgnoreCase(dataLine.trim())) {
+                                            // après EOF, lire la réponse finale (OK STORED / ERR PUT)
+                                            try {
+                                                readServiceResponse(c);
+                                            } catch (Exception e) {
+                                                System.out.println("<< Connexion fermée. Reconnexion...");
+                                            }
+                                            break;
+                                        }
                                     }
+                                    continue;
                                 }
 
-                                if ("BYE".equalsIgnoreCase(svcCmd)) {
+                                if ("BYE".equalsIgnoreCase(svcCmd.trim())) {
                                     // si le service garde la connexion, on revient au menu AMA
-                                    // sinon le prochain readLine() sera null et on reconnectera
                                     break;
                                 }
                             }
 
-                            // On arrive ici si service terminé/connexion fermée -> on reconnecte proprement
+                            // reconnexion propre (nouvelle Conn)
                             System.out.println("<< Reconnexion...");
-                            break; // sort du menu AMA => fermeture Conn => nouvelle Conn
+                            break;
                         }
 
-                        // LIST ou autre commande AMA
-                        String line = c.in.readLine();
-                        if (line == null) {
+                        // LIST / autres commandes AMA : lire au moins 1 ligne, puis si bloc, jusqu’à END
+                        String first = c.in.readLine();
+                        if (first == null) {
                             System.out.println("<< Connexion fermée. Reconnexion...");
                             break;
                         }
-                        System.out.println(line);
+                        System.out.println(first);
 
-                        if (!looksLikeEnd(line)) {
-                            while (c.in.ready()) {
+                        if (!isSimpleEnd(first)) {
+                            // bloc AMA (LIST) : lire jusqu’à END
+                            while (true) {
                                 String more = c.in.readLine();
                                 if (more == null) break;
                                 System.out.println(more);
-                                if (looksLikeEnd(more)) break;
+                                if (isBlockEnd(more) || more.equals("END")) break;
+                            }
+                        } else if (first.startsWith("SERVICES ")) {
+                            // cas LIST : on lit jusqu'à END
+                            while (true) {
+                                String more = c.in.readLine();
+                                if (more == null) break;
+                                System.out.println(more);
+                                if (more.equals("END")) break;
                             }
                         }
                     }

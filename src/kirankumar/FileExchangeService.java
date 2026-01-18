@@ -35,8 +35,13 @@ public class FileExchangeService extends Thread implements BriService {
         try {
             Files.createDirectories(STORAGE_DIR);
 
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
+            BufferedReader in = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8)
+            );
+            PrintWriter out = new PrintWriter(
+                    new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8),
+                    true
+            );
 
             out.println("FILEX READY");
             out.println("COMMANDS: LS | PUT <filename> | GET <filename> | BYE");
@@ -51,31 +56,35 @@ public class FileExchangeService extends Thread implements BriService {
 
                 if (line.equalsIgnoreCase("BYE")) {
                     out.println("BYE");
+                    out.flush();
                     break;
                 }
 
                 if (line.equalsIgnoreCase("LS")) {
                     listFiles(out);
+                    out.flush();
                     continue;
                 }
 
                 if (line.toUpperCase().startsWith("PUT ")) {
                     String filename = line.substring(4).trim();
                     handlePut(filename, in, out);
+                    out.flush();
                     continue;
                 }
 
                 if (line.toUpperCase().startsWith("GET ")) {
                     String filename = line.substring(4).trim();
                     handleGet(filename, out);
+                    out.flush();
                     continue;
                 }
 
                 out.println("ERR Unknown command");
+                out.flush();
             }
 
         } catch (Exception e) {
-            // log minimal
             System.err.println("[FileExchangeService] " + e.getMessage());
         } finally {
             try { socket.close(); } catch (IOException ignored) {}
@@ -99,22 +108,41 @@ public class FileExchangeService extends Thread implements BriService {
     private void handlePut(String filename, BufferedReader in, PrintWriter out) {
         try {
             Path safePath = resolveSafePath(filename);
+
             out.println("OK PUT " + safePath.getFileName());
+            out.flush(); // important : confirme au client qu'on est prêt à recevoir
 
             StringBuilder b64 = new StringBuilder();
+
             while (true) {
                 String l = in.readLine();
                 if (l == null) throw new IOException("Client disconnected during PUT");
-                if (l.equals("EOF")) break;
-                b64.append(l.trim());
+
+                l = l.trim();              // IMPORTANT
+                if (l.equals("EOF")) break; // IMPORTANT: EOF détecté même si espaces
+
+                if (!l.isEmpty()) {
+                    b64.append(l);
+                }
             }
 
-            byte[] data = Base64.getDecoder().decode(b64.toString());
+            byte[] data;
+            try {
+                data = Base64.getDecoder().decode(b64.toString());
+            } catch (IllegalArgumentException ex) {
+                out.println("ERR PUT Bad base64");
+                out.flush();
+                return;
+            }
+
             Files.write(safePath, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
             out.println("OK STORED " + safePath.getFileName() + " " + data.length + " bytes");
+            out.flush();
+
         } catch (Exception e) {
             out.println("ERR PUT " + e.getMessage());
+            out.flush();
         }
     }
 
@@ -123,6 +151,7 @@ public class FileExchangeService extends Thread implements BriService {
             Path safePath = resolveSafePath(filename);
             if (!Files.exists(safePath) || !Files.isRegularFile(safePath)) {
                 out.println("ERR GET Not found");
+                out.flush();
                 return;
             }
 
@@ -130,14 +159,18 @@ public class FileExchangeService extends Thread implements BriService {
             String b64 = Base64.getEncoder().encodeToString(data);
 
             out.println("OK GET " + safePath.getFileName() + " " + data.length + " bytes");
+            out.flush();
 
             int chunkSize = 76;
             for (int i = 0; i < b64.length(); i += chunkSize) {
                 out.println(b64.substring(i, Math.min(i + chunkSize, b64.length())));
             }
             out.println("EOF");
+            out.flush();
+
         } catch (Exception e) {
             out.println("ERR GET " + e.getMessage());
+            out.flush();
         }
     }
 
