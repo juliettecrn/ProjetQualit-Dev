@@ -15,11 +15,9 @@ public class ClientProg {
              PrintWriter out = new PrintWriter(new OutputStreamWriter(s.getOutputStream()), true);
              Scanner sc = new Scanner(System.in)) {
 
-            // Welcome
             System.out.println(in.readLine());
-            System.out.println(in.readLine()); // LOGIN ...
+            System.out.println(in.readLine());
 
-            // ---- phase LOGIN (réutilisable) ----
             while (true) {
                 System.out.print("login> ");
                 String login = sc.nextLine();
@@ -37,7 +35,6 @@ public class ClientProg {
                 }
             }
 
-            // ---- commandes ----
             while (true) {
                 System.out.print("prog> ");
                 String cmd = sc.nextLine();
@@ -47,9 +44,8 @@ public class ClientProg {
                 if (resp == null) break;
                 System.out.println(resp);
 
-                // LOGOUT → retour à la phase LOGIN
                 if (resp.startsWith("OK LOGOUT")) {
-                    System.out.println(in.readLine()); // LOGIN <login> <password>
+                    System.out.println(in.readLine());
                     while (true) {
                         System.out.print("login> ");
                         String login = sc.nextLine();

@@ -12,7 +12,6 @@ public class FileExchangeService extends Thread implements BriService {
 
     private final Socket socket;
 
-    // Dossier où le serveur stocke les fichiers reçus
     private static final Path STORAGE_DIR = Paths.get("bri_storage", "kirankumar");
 
     public FileExchangeService(Socket socket) {
@@ -110,7 +109,7 @@ public class FileExchangeService extends Thread implements BriService {
             Path safePath = resolveSafePath(filename);
 
             out.println("OK PUT " + safePath.getFileName());
-            out.flush(); // important : confirme au client qu'on est prêt à recevoir
+            out.flush();
 
             StringBuilder b64 = new StringBuilder();
 
@@ -118,8 +117,8 @@ public class FileExchangeService extends Thread implements BriService {
                 String l = in.readLine();
                 if (l == null) throw new IOException("Client disconnected during PUT");
 
-                l = l.trim();              // IMPORTANT
-                if (l.equals("EOF")) break; // IMPORTANT: EOF détecté même si espaces
+                l = l.trim();
+                if (l.equals("EOF")) break;
 
                 if (!l.isEmpty()) {
                     b64.append(l);

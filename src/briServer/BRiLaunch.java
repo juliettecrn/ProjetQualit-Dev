@@ -8,7 +8,6 @@ public class BRiLaunch {
     public static void main(String[] args) {
         ServiceRegistry registry = new ServiceRegistry();
 
-        // Tu peux démarrer avec un registre vide, puis ADD via clientProg
         System.out.println("BRiLaunch démarré.");
         System.out.println("PORT_AMA=" + PORT_AMA + " | PORT_PROG=" + PORT_PROG);
 

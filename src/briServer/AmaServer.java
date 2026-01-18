@@ -103,10 +103,8 @@ public class AmaServer extends Thread {
                         }
 
                         out.println("OK RUNNING " + serviceName);
-                        out.flush(); // important
+                        out.flush();
 
-                        // IMPORTANT : on délègue la socket au service.
-                        // Après ça, le handler ne doit plus lire/écrire.
                         Thread serviceThread = (Thread) d.socketCtor.newInstance(socket);
                         serviceThread.start();
 
