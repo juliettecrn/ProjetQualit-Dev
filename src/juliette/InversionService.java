@@ -35,7 +35,6 @@ public class InversionService extends Thread implements BriService {
             while (true) {
                 String text = in.readLine();
                 if (text == null) {
-                    // client a fermé
                     return;
                 }
 

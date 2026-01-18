@@ -108,7 +108,6 @@ public class ProgServer extends Thread {
 
                     if (line.equalsIgnoreCase("LOGOUT")) {
                         out.println("OK LOGOUT");
-                        // Revenir en mode authentification
                         login = null;
 
                         out.println("LOGIN <login> <password>");

@@ -22,14 +22,14 @@ public class ClientAma {
         line = line.trim();
         return line.equals("BYE")
                 || line.startsWith("ERR")
-                || line.startsWith("OK STORED") // fin PUT
-                || line.startsWith("OK USER")   // messagerie
-                || line.startsWith("OK SENT")   // messagerie
-                || line.startsWith("OK READ")   // messagerie (suivi d’un bloc END)
-                || line.startsWith("OK LS")     // filex (suivi d’un bloc END n)
-                || line.startsWith("OK GET")    // filex (suivi d’un bloc EOF)
-                || line.startsWith("OK PUT")    // filex (ensuite client envoie base64/EOF)
-                || line.startsWith("OK ");      // fallback
+                || line.startsWith("OK STORED")
+                || line.startsWith("OK USER")
+                || line.startsWith("OK SENT")
+                || line.startsWith("OK READ")
+                || line.startsWith("OK LS")
+                || line.startsWith("OK GET")
+                || line.startsWith("OK PUT")
+                || line.startsWith("OK ");
     }
 
     private static class Conn implements Closeable {
@@ -51,13 +51,9 @@ public class ClientAma {
         }
     }
 
-    /**
-     * Lit toutes les lignes “déjà envoyées” par le serveur, sans se baser sur ready().
-     * On utilise un petit timeout pour vider ce qui est immédiatement disponible.
-     */
     private static void drainServerOutput(Conn c, int maxLines) throws IOException {
         int oldTimeout = c.socket.getSoTimeout();
-        c.socket.setSoTimeout(120); // petit timeout : on lit ce qui arrive tout de suite
+        c.socket.setSoTimeout(120);
         try {
             for (int i = 0; i < maxLines; i++) {
                 try {
@@ -68,7 +64,7 @@ public class ClientAma {
                     if (isBlockEnd(l)) return;
 
                 } catch (SocketTimeoutException ste) {
-                    return; // plus rien d'immédiat
+                    return;
                 }
             }
         } finally {
@@ -76,11 +72,6 @@ public class ClientAma {
         }
     }
 
-    /**
-     * Lit la réponse du service après une commande:
-     * - lit au moins 1 ligne
-     * - si c’est un bloc (LS/READ/GET), lit jusqu’à END/EOF
-     */
     private static void readServiceResponse(Conn c) throws IOException {
         String first = c.in.readLine();
         if (first == null) throw new EOFException("Connection closed");
@@ -119,17 +110,14 @@ public class ClientAma {
             while (true) {
                 try (Conn c = new Conn(host, portAma)) {
 
-                    // welcome
                     System.out.println(c.in.readLine());
                     System.out.println(c.in.readLine());
 
-                    // menu AMA
                     while (true) {
                         System.out.print("ama> ");
                         String cmd = sc.nextLine().trim();
                         if (cmd.isEmpty()) continue;
 
-                        // BYE => fin totale
                         if (cmd.equalsIgnoreCase("BYE")) {
                             c.out.println("BYE");
                             String bye = c.in.readLine();
@@ -139,7 +127,6 @@ public class ClientAma {
 
                         c.out.println(cmd);
 
-                        // RUN => mode service
                         if (cmd.toUpperCase().startsWith("RUN ")) {
                             String resp = c.in.readLine();
                             if (resp == null) {
@@ -156,7 +143,6 @@ public class ClientAma {
 
                             drainServerOutput(c, 10);
 
-                            // boucle service
                             while (true) {
                                 System.out.print("svc> ");
                                 String svcCmd = sc.nextLine();
